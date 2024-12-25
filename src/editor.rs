@@ -1,4 +1,5 @@
-use crossterm::event::{read, Event, Event::Key, KeyCode::Char, KeyEvent, KeyModifiers};
+use crossterm::event::{read, Event::{self, Key}, KeyCode::{self, Char}, KeyEvent, KeyEventKind, KeyModifiers};
+use core::cmp::{ min, max };
 mod terminal;
 use terminal::{ Terminal, Position, Size };
 use std::io::Error;
@@ -8,11 +9,12 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub struct Editor {
     should_quit: bool,
+    cursor_position: Position,
 }
 
 impl Editor {
     pub const fn default() -> Self {
-        Self { should_quit: false }
+        Self { should_quit: false, cursor_position: Position { column: 1, row: 0 } }
     }
 
     pub fn run(&mut self) {
@@ -29,20 +31,65 @@ impl Editor {
                 break;
             }
             let event = read()?;
-            self.evaluate_event(&event);
+            self.evaluate_event(&event)?;
         }
         Ok(())
     }
 
-    fn evaluate_event(&mut self, event: &Event) {
-        if let Key(KeyEvent {code, modifiers, ..}) = event {
+    fn evaluate_event(&mut self, event: &Event) -> Result<(), Error> {
+        if let Key(KeyEvent {code, modifiers, kind: KeyEventKind::Press, ..}) = event {
             match code {
                 Char('q') if *modifiers == KeyModifiers::CONTROL => {
                     self.should_quit = true;
                 }
+                KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::PageUp
+                | KeyCode::PageDown
+                | KeyCode::Home
+                | KeyCode::End => {
+                    self.move_cursor(code)?;
+                }
                 _ => (),
             }
         }
+        Ok(())
+    }
+
+    fn move_cursor(&mut self, code: &KeyCode) -> Result<(), Error> {
+        let Size{columns, rows} = Terminal::size()?;
+        let Position{row, column} = self.cursor_position;
+        match code {
+            KeyCode::Left => {
+                self.cursor_position = Position {row, column: max(column.saturating_sub(1), 1)};
+            }
+            KeyCode::Right => {
+                self.cursor_position = Position {row, column: min(column.saturating_add(1), columns - 1)};
+            }
+            KeyCode::Up => {
+                self.cursor_position = Position {row: row.saturating_sub(1), column};
+            }
+            KeyCode::Down => {
+                self.cursor_position = Position {row: min(row.saturating_add(1), rows - 1), column};
+            }
+            KeyCode::PageUp => {
+                self.cursor_position = Position {row: 0, column};
+            }
+            KeyCode::PageDown => {
+                self.cursor_position = Position {row: 0, column};
+            }
+            KeyCode::Home => {
+                self.cursor_position = Position {row: 0, column};
+            }
+            KeyCode::End => {
+                self.cursor_position = Position {row: rows - 1, column};
+            }
+            _ => ()
+        }
+        Terminal::move_cursor_to(self.cursor_position)?;
+        Ok(())
     }
 
     fn refresh_screen(&self) -> Result<(), Error> {
@@ -52,7 +99,7 @@ impl Editor {
             Terminal::print("Goodbye!\r\n")?;
         } else {
             Self::draw_rows()?;
-            Terminal::move_cursor_to(Position {column: 0, row: 0})?;
+            Terminal::move_cursor_to(self.cursor_position)?;
         }
         Terminal::show_cursor()?;
         Terminal::execute()?;
@@ -69,6 +116,7 @@ impl Editor {
     }
 
     pub fn draw_rows() -> Result<(), Error> {
+        Terminal::move_cursor_to(Position {row: 0, column: 0})?;
         let rows = Terminal::size()?.rows;
         for i in 0..rows {
             Terminal::clear_line()?;

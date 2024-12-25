@@ -22,7 +22,6 @@ impl Terminal {
     pub fn initialize() -> Result<(), Error> {
         enable_raw_mode()?;
         Self::clear_screen()?;
-        Self::move_cursor_to(Position { column: 0, row: 0 })?;
         Ok(())
     }
 
